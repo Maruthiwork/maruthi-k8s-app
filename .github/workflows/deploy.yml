@@ -1,0 +1,180 @@
+name: Build and Deploy Next.js to EKS
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: 358454003381.dkr.ecr.ap-south-1.amazonaws.com/maruthi-nextjs
+  EKS_CLUSTER_NAME: maruthi-practice
+
+  HELM_RELEASE: maruthi-app
+  HELM_CHART: ./helm/maruthi-app
+  K8S_NAMESPACE: maruthi
+
+jobs:
+
+  build-and-deploy:
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+
+      # ==========================================
+      # 1. Checkout source code
+      # ==========================================
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+
+      # ==========================================
+      # 2. Configure AWS
+      # ==========================================
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{secrets.AWS_REGION}}
+
+
+      # ==========================================
+      # 3. Verify AWS authentication
+      # ==========================================
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
+
+
+      # ==========================================
+      # 4. Login to Amazon ECR
+      # ==========================================
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+
+      # ==========================================
+      # 5. Set image tag
+      # ==========================================
+
+      - name: Set image tag
+        id: image
+        run: |
+          echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+
+      # ==========================================
+      # 6. Build Docker image
+      # ==========================================
+
+      - name: Build Docker image
+        run: |
+
+          docker build \
+            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.image.outputs.tag }} \
+            .
+
+
+      # ==========================================
+      # 7. Push image to ECR
+      # ==========================================
+
+      - name: Push Docker image
+        run: |
+
+          docker push \
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.image.outputs.tag }}
+
+
+      # ==========================================
+      # 8. Configure kubectl for EKS
+      # ==========================================
+
+      - name: Update kubeconfig
+        run: |
+
+          aws eks update-kubeconfig \
+            --region $AWS_REGION \
+            --name $EKS_CLUSTER_NAME
+
+
+      # ==========================================
+      # 9. Verify EKS access
+      # ==========================================
+
+      - name: Verify Kubernetes access
+        run: |
+
+          kubectl get nodes
+
+
+      # ==========================================
+      # 10. Helm lint
+      # ==========================================
+
+      - name: Helm lint
+        run: |
+
+          helm lint $HELM_CHART
+
+
+      # ==========================================
+      # 11. Deploy using Helm
+      # ==========================================
+
+      - name: Deploy with Helm
+        run: |
+
+          helm upgrade --install $HELM_RELEASE $HELM_CHART \
+            --namespace $K8S_NAMESPACE \
+            --create-namespace \
+            --set image.repository=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }} \
+            --set image.tag=${{ steps.image.outputs.tag }}
+
+
+      # ==========================================
+      # 12. Wait for rollout
+      # ==========================================
+
+      - name: Verify rollout
+        run: |
+
+          kubectl rollout status \
+            deployment/$HELM_RELEASE \
+            --namespace $K8S_NAMESPACE \
+            --timeout=5m
+
+
+      # ==========================================
+      # 13. Show final status
+      # ==========================================
+
+      - name: Show deployment status
+        run: |
+
+          echo "===== PODS ====="
+
+          kubectl get pods \
+            -n $K8S_NAMESPACE \
+            -o wide
+
+          echo "===== SERVICE ====="
+
+          kubectl get svc \
+            -n $K8S_NAMESPACE
+
+          echo "===== DEPLOYMENT ====="
+
+          kubectl get deployment \
+            -n $K8S_NAMESPACE
