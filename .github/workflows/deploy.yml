@@ -7,7 +7,7 @@ on:
 
 env:
   AWS_REGION: ap-south-1
-  ECR_REPOSITORY: 358454003381.dkr.ecr.ap-south-1.amazonaws.com/maruthi-nextjs
+  ECR_REPOSITORY: maruthi-nextjs
   EKS_CLUSTER_NAME: maruthi-practice
 
   HELM_RELEASE: maruthi-app
