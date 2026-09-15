@@ -71,7 +71,7 @@ ingress:
     alb.ingress.kubernetes.io/success-codes: "200"
     
   hosts:
-    - host: maruthi-practice.online
+    - host: maruthipractice.online
       paths:
         - path: /
           pathType: Prefix
